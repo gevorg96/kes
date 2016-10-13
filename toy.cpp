@@ -1,5 +1,4 @@
-#include <iostream>
-#include <csddio>
+#include <cstdio>
 #include <cstdlib>
 #include <map>
 #include <string>
@@ -33,13 +32,13 @@ static int gettok()
 		LastCh = getchar();
 
 	if(isalpha(LastCh)){		
-		IdStr = LastCh;			//идентефикаторы
+		IdStr = LastCh;				//идентефикаторы
 
-	while(isalnum((LastCh = getchar())))
-		IdStr += LastCh;
+		while(isalnum((LastCh = getchar())))
+		  IdStr += LastCh;
 
-	if(IdentifierStr == "def") return tok_def;
-	if(IdentifierStr == "extern") return tok_extern;
+		if(IdStr == "def") return tok_def;
+		if(IdStr == "extern") return tok_extern;
 		return tok_identifier; 
 	}
 
@@ -65,7 +64,7 @@ static int gettok()
 	}
 
 	
-	if (LastCh = EOF) 							//проверка конца файла
+	if (LastCh = EOF) 						//проверка конца файла
  		return tok_eof;
 
 	int ThisCh = LastCh;						//иначе
@@ -75,7 +74,7 @@ static int gettok()
 
 
 //--------------------
-//    	   AST
+//	  AST
 //--------------------
 
 
@@ -88,7 +87,7 @@ class ExprAST{									//базовый класс
 class NumExprAST : public ExprAST {			//узел выражения для числовых литералов
 	  double Val;
 	public:
-	  NumbExprAST(double val): Val(val) {}
+	  NumExprAST (double val) : Val(val) {}
 };
 
 
@@ -103,7 +102,7 @@ class BinExprAST : public ExprAST{				//узел выражения для би�
 	  char Op;
 	  ExprAST *LHS, *RHS;
 	public:
-	  BinExprAST (char op, ExprAST *lhs, * rhs)
+	  BinExprAST (char op, ExprAST *lhs, ExprAST *rhs)
 	  : Op(op), LHS(lhs), RHS(rhs) {}
 };
 
@@ -112,43 +111,43 @@ class CallExprAST : public ExprAST{				//узел выражения для вы
 	  string Callee;	
 	  vector<ExprAST*> Args;
 	public:
-	  CallExprAST (const string &callee, vector(ExprAST*> &args)
-	  :  Callee(callee), Args(args) {}
+	  CallExprAST (const string &callee, vector<ExprAST*> &args)
+	  : Callee(callee), Args(args) {}
 };
 
 
 
-class ProtoAST {								//прототип функции(хранит имя функции и имена арг.)
+class ProtoAST {							//прототип функции(хранит имя функции и имена арг.)
 	  string Name;
 	  vector<string> Args;
 	public:
-	  ProtoAST (const &name, const vector<string> &args)
-	  :  Name(name), Args(args) {}
+	  ProtoAST (const string &name, const vector<string> &args)
+	  : Name(name), Args(args) {}
 };
 
 
-class FuncAST {									//узел выражения определения функции
+class FuncAST {								//узел выражения определения функции
 	  ProtoAST *Proto;
 	  ExprAST *Body;
 	public:
 	  FuncAST (ProtoAST *proto, ExprAST *body)
-	  :  Proto(proto), Body(body) {}
+	  : Proto(proto), Body(body) {}
 };
 
 
-//-------------------
-//		Parser
-//-------------------
+//----------------------
+//	   Parser
+//----------------------
 
 	
-static int CurTok;								//текущий токен
-static int getNextTok() {						//смотрим на 1 токен вперёд
+static int CurTok;					//текущий токен
+static int getNextTok() {				//смотрим на 1 токен вперёд
 	return CurTok = gettok();
 }
 
 static map<char, int> BinopPrecedence;			//приоритеты бинарных операторов
 
-static int GetTokPrec() {					//возвращает приоритет текущего бинарного оператора
+static int GetTokPrec() {				//возвращает приоритет текущего бинарного оператора
 	if (!isascii(CurTok))
 	  return -1;
 
@@ -158,33 +157,33 @@ static int GetTokPrec() {					//возвращает приоритет теку
 }
 
 		
-ExprAST *Error (const char *Str) { 				//Обработчики ошибок
-	fprintf(stderr, "Error: %s\n", Str);
-	return 0;
-}							
+ExprAST *Error (const char *Str) { 			//Обработчики ошибок
+	fprintf(stderr, "Error: %s\n", Str);		//	
+	return 0;					//
+}							//
 
-ProtoAST *ErrorP (const char *Str) {
-	Error(Str);
-	return 0;
-}
+ProtoAST *ErrorP (const char *Str) {			//
+	Error(Str);					//
+	return 0;					//
+}							//
 
-FuncAST *ErrorF (const char *Str) {
-	Error(Str);
-	return 0;
+FuncAST *ErrorF (const char *Str) {			//
+	Error(Str);					//
+	return 0;					//
 }
 
 
 static ExprAST *ParseExpr();
 
 
-static ExprAST *ParseIdExpr() {					//парсер идентефикаторов
+static ExprAST *ParseIdExpr() {				//парсер идентефикаторов
 	string Idname = IdStr;
 	
 	getNextTok();
 
-	if (CurTok != '(') return new VarExprAST;	//переменная
+	if (CurTok != '(') return new VarExprAST(Idname);	//переменная
 
-	getNextTok();								//получаем "("
+	getNextTok();					//получаем "("
 	vector<ExprAST*> Args;
 	
 	if (CurTok != ')') {
@@ -192,7 +191,7 @@ static ExprAST *ParseIdExpr() {					//парсер идентефикаторо�
 
 		ExprAST *Arg = ParseExpr();
 		if (!Arg) return 0;
-		  Args.push_back(Arg);
+		Args.push_back(Arg);
 
 		if (CurTok == ')') break;
 
@@ -217,7 +216,7 @@ static ExprAST *ParseNumExpr() {				//парсер чисел
 static ExprAST *ParseParExpr() {				//парсер выражений в скобках
 	getNextTok();
 	
-	ExprAST *V = ParceExpr();
+	ExprAST *V = ParseExpr();
 	if (!V) return 0;
 
 	if ( CurTok != ')')	return Error ("Expected ')'");
@@ -228,13 +227,13 @@ static ExprAST *ParseParExpr() {				//парсер выражений в ско�
 }
 
 
-static ExprAST *ParcePrimary() {				//парсер произвольного первичного выражения
+static ExprAST *ParsePrimary() {				//парсер произвольного первичного выражения
 	switch (CurTok) {
 
 	  default: return Error ("unknown token when expecting an expression");
-	  case tok_identifier: 	return ParceIdExpr();
-	  case tok_number: 		return ParceNumExpr();
-	  case '(':				return ParceParExpr();
+	  case tok_identifier: 	return ParseIdExpr();
+	  case tok_number: 	return ParseNumExpr();
+	  case '(':		return ParseParExpr();
 	}
 }
 
@@ -250,12 +249,12 @@ static ExprAST *ParseBinopRHS ( int ExprPrec, ExprAST *LHS) {
 	  int Binop = CurTok;
 	  getNextTok();								//съесть оператор
 
-	  ExprAST *PHS = ParcePrimary();			//разбор первичного выражения после бин.оп.
+	  ExprAST *RHS = ParsePrimary();			//разбор первичного выражения после бин.оп.
 	  if (!RHS) return 0;
 
 	  int NextPrec = GetTokPrec();				//если оп. связан с RHS меньшим приоритетом,
 	  if (TokPrec < NextPrec) {					//чем оп. после RHS, то берём часть вместе с RHS как LHS
-		RHS = ParceBinopRHS (TokPrec+1, RHS);
+		RHS = ParseBinopRHS (TokPrec+1, RHS);
 		if (!RHS) return 0;
 	  }
 
@@ -264,16 +263,16 @@ static ExprAST *ParseBinopRHS ( int ExprPrec, ExprAST *LHS) {
 }
 
 
-static ExprAST *ParceExpr() {
+static ExprAST *ParseExpr() {
 	
-	ExprAST *LHS = ParcePrimary();
+	ExprAST *LHS = ParsePrimary();
 	if (!LHS) return 0;
 
-	return ParceBinopRHS (0, LHS);
+	return ParseBinopRHS (0, LHS);
 }
 
 
-static ProtoAST *ParceProto() {					//парсер прототипов функций
+static ProtoAST *ParseProto() {					//парсер прототипов функций
 
 	if (CurTok != tok_identifier)
 	  return ErrorP ("Expected func name in prototype");
@@ -282,7 +281,7 @@ static ProtoAST *ParceProto() {					//парсер прототипов функ
 	getNextTok();
 
 	if (CurTok != '(')
-	  return ErrorP ("Expected '(' in prototype");
+    	  return ErrorP("Expected '(' in prototype");
 
 	vector<string> ArgNames;					//считываем список аргументов
 
@@ -302,9 +301,9 @@ static FuncAST *ParseDef() {
 	getNextTok();
 	
 	ProtoAST *Proto = ParseProto();
-	if (!Proto) return 0;
+	if (Proto == 0) return 0;
 
-	if (ExprAST *E = ParceExpr()) return new FuncAST (Proto, E);
+	if (ExprAST *E = ParseExpr()) return new FuncAST (Proto, E);
 	return 0;
 }
 
@@ -330,6 +329,70 @@ static ProtoAST *ParseExtern() {
 
 
 //----------------------------
-//		Top-Level Parsing
+//	Top-Level Parsing
 //----------------------------
+
+
+static void HandleDef() {
+	if (ParseDef()) {
+	  fprintf(stderr, "Parsed a function definition.\n");
+	} else {
+	  getNextTok();						//пропуск токена для восстановления после ошибки
+	}
+}
+
+
+static void HandleExtern() {
+	if (ParseExtern()) {
+	  fprintf(stderr, "Parsed an extern.\n"); 
+	} else {
+	  getNextTok();						//..
+	} 
+}
+
+static void HandleTopLevelExpr() {
+	if (ParseTopLevelExpr()) {
+	  fprintf(stderr, "Parsed a top-level expr.\n");
+	} else {
+	   getNextTok();					//..
+	}
+}
+
+static void MainLoop() {					//top = def| external| expr| ';'
+	while (1) {
+	  fprintf(stderr, "ready> ");
+	  switch (CurTok) {
+		case tok_eof:		return;
+		case ';': 		getNextTok(); break;	//игнорируем ';' верхнего уровня
+		case tok_def:		HandleDef(); break;
+		case tok_extern:	HandleExtern(); break;
+		default:		HandleTopLevelExpr(); break;
+	  }
+	}
+}
+
+
+//---------------------------
+//	Main driver code
+//---------------------------
+
+int main() {
+								//задаём бинарные операторы
+	BinopPrecedence['<'] = 10;
+	BinopPrecedence['+'] = 20;
+	BinopPrecedence['-'] = 20;
+	BinopPrecedence['*'] = 30;
+
+	fprintf(stderr, "ready> ");
+	getNextTok();
+
+	MainLoop();						//цикл интерпретатора
+	
+	return 0;
+}
+
+
+
+
+
 
