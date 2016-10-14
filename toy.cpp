@@ -64,7 +64,7 @@ static int gettok()
 	}
 
 	
-	if (LastCh = EOF) 						//проверка конца файла
+	if (LastCh == EOF) 						//проверка конца файла
  		return tok_eof;
 
 	int ThisCh = LastCh;						//иначе
