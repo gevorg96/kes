@@ -81,6 +81,9 @@ static int gettok()
 class ExprAST{									//базовый класс
 	public:
 	  virtual ~ExprAST(){}
+
+
+	virtual Value *Codegen() = 0;
 };
 
 
@@ -88,6 +91,8 @@ class NumExprAST : public ExprAST {			//узел выражения для чи�
 	  double Val;
 	public:
 	  NumExprAST (double val) : Val(val) {}
+
+	virtual Value *Codegen();
 };
 
 
@@ -95,6 +100,8 @@ class VarExprAST : public ExprAST {				//узел выражения для пе
 	  string Name;
 	public:
 	  VarExprAST (const string &name) : Name(name) {}
+
+	virtual Value *Codegen();
 };
 
 
@@ -104,6 +111,8 @@ class BinExprAST : public ExprAST{				//узел выражения для би�
 	public:
 	  BinExprAST (char op, ExprAST *lhs, ExprAST *rhs)
 	  : Op(op), LHS(lhs), RHS(rhs) {}
+
+	virtual Value *Codegen();
 };
 
 
@@ -113,6 +122,8 @@ class CallExprAST : public ExprAST{				//узел выражения для вы
 	public:
 	  CallExprAST (const string &callee, vector<ExprAST*> &args)
 	  : Callee(callee), Args(args) {}
+
+	virtual Value *Codegen();
 };
 
 
@@ -123,6 +134,8 @@ class ProtoAST {							//прототип функции(хранит имя ф�
 	public:
 	  ProtoAST (const string &name, const vector<string> &args)
 	  : Name(name), Args(args) {}
+
+	virtual Value *Codegen();
 };
 
 
@@ -132,6 +145,8 @@ class FuncAST {								//узел выражения определения фу
 	public:
 	  FuncAST (ProtoAST *proto, ExprAST *body)
 	  : Proto(proto), Body(body) {}
+
+	virtual Value *Codegen();
 };
 
 
@@ -326,6 +341,67 @@ static ProtoAST *ParseExtern() {
 	
 	return ParseProto();
 }
+
+
+//--------------------------
+//	Code Generation
+//--------------------------
+
+static Module *TheModule;
+static IRBuilder<> Builder(getGlobalContext());
+static map<string, Value*> NamedValues;
+
+
+Value *ErrorV (const char *Str) {
+	Error(Str);
+	return 0;
+}
+
+
+Value *NumExprAST:: Codegen() {
+	return ConstantFP::get(getGlobalContext(), APFloat(Val));
+}
+
+
+Value *VarExprAST::Codegen() {
+
+	Value *V = NamedValues[Name];
+	return V ? V : ErrorV("Unknown variable name.");
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 //----------------------------
