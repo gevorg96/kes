@@ -1,3 +1,9 @@
+
+#include "llvm/DerivedTypes.h"
+#include "llvm/LLVMContext.h"
+#include "llvm/Module.h"
+#include "llvm/Analysis/Verifier.h"
+#include "llvm/Support/IRBuilder.h"
 #include <cstdio>
 #include <cstdlib>
 #include <map>
@@ -369,49 +375,110 @@ Value *VarExprAST::Codegen() {
 	return V ? V : ErrorV("Unknown variable name.");
 }
 
+Value *BinExprAST::Codegen() {
+	Value L* = LSH->Codegen();
+	Value R* = RSH->Codegen();
+	if (L == 0 || R==0) return 0;
+
+	switch(Op) {
+	  case '+': return Builder.CreateFAdd(L, R, "addtmp");
+	  case '-': return Builder.CreateFSub(L, R, "subtmp");
+	  case '*': return Builder.CreateFMul(L, R, "multmp");
+	  case '<': 
+		L = Builder.CreateFCmpULT(L, R, "cmptmp");
+		return Builder.CreateUIToFP(L, Type::getDoubleTy(getGlobalContext()), "booltmp");
+
+	  default: return ErrorV("invalid binary operator");
+	}
+}
+
+Value *CallExprAST:: Codegen() {
+
+	Function *CalleeF = TheModule->getFunction(Callee);
+	if (CalleeF == 0)
+	  return ErrorV("Unknown function referenced");
+
+	if (CalleeF->arg_size() != Args.size())
+	  return ErrorV("Incorrect # arguments passed");
+
+	vector<Value*> ArgsV;
+	for (unsigned i = 0, e = Args.size; i != e; ++i) {
+	  ArgsV.push_back(Args[i]->Codegen());
+	  if (ArgsV.back() == 0) return 0;
+	}
+	
+	return Builder.CreateCall(CalleeF, ArgsV.begin(), ArgsV.end(), "calltmp");
+}
 
 
+Function *ProtoAST:: Codegen() {
+	vector <const Type*> Doubles(Args.size(), Type:: getDoubleTy(getGlobalContext()));
+	
+	FunctionType *FT = FunctionType::get(Type::getDoubleTy(getGlobalContext()), Doubles, false);
+
+	Function *F = Function:: Create(FT, Function::ExternalLinkage, Name, TheModule);
+
+	if (F->getName() != Name) {
+
+	  F->eraseFromParent();
+	  F = TheModule->getFunction(Name);
+
+	  if (!F->empty()) {
+		ErrorF("redefinition of function");
+		return 0;
+	  }
+
+	  if (F->arg_size() != Args.size()) {
+		ErrorF("redefinition of function with different # args");
+		return 0;
+	  }
+	}
 
 
+	unsigned Idx = 0;
+	for (Function::arg_iterator AI = F->arg_begin(); Idx != Args.size(); ++AI, ++Idx) {
+	  AI->setName(Args[Idx]);
+	  NamedValues[Args[Idx]);
+
+	  NamedValues[Args[Idx]] = AI;
+	}
+
+	return F;
+}
 
 
+Function *FuncAST:: Codegen() {
+	NamedValues.clear();
 
+	Function *TheFunction = Proto->Codegen();
+	if (TheFunction == 0) return 0;
 
+	BasicBlock *BB = BasicBlock::Create(getGlobalContext(), "entry", TheFunction);
+	Builder.SetInsertPoint(BB);
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+	if (Value *RetVAl = Body->Codegen()) {
+	  Builder.CreateRet(RetVal);
+	  verifyFunction(*TheFunction);
+	  return TheFunction;
+	}
+	
+	TheFunction->eraseFromParent();
+	return 0;
+}
 
 
 
 //----------------------------
-//	Top-Level Parsing
+//	Top-Level Parsing & JIT
 //----------------------------
 
 
 static void HandleDef() {
-	if (ParseDef()) {
-	  fprintf(stderr, "Parsed a function definition.\n");
+	if (FuncAST *F = ParseDef()) {
+	  if (Function *LF = F->Codegen()) {
+	    fprintf(stderr, "Parsed a function definition.\n");
+	    LF->dump();
+	  }
 	} else {
 	  getNextTok();						//пропуск токена для восстановления после ошибки
 	}
@@ -419,16 +486,22 @@ static void HandleDef() {
 
 
 static void HandleExtern() {
-	if (ParseExtern()) {
-	  fprintf(stderr, "Parsed an extern.\n"); 
+	if (ProtoAST *P = ParseExtern()) {
+	  if(Function *F = P->Codegen()){
+	    fprintf(stderr, "Parsed an extern.\n"); 
+	    F->dump();
+	  }	
 	} else {
 	  getNextTok();						//..
 	} 
 }
 
 static void HandleTopLevelExpr() {
-	if (ParseTopLevelExpr()) {
-	  fprintf(stderr, "Parsed a top-level expr.\n");
+	if (FuncAST *F = ParseTopLevelExpr()) {
+	  if(Function *LF = F->Codegen()) {
+	    fprintf(stderr, "Parsed a top-level expr.\n");
+	    LF->dump();
+	  }
 	} else {
 	   getNextTok();					//..
 	}
@@ -447,6 +520,20 @@ static void MainLoop() {					//top = def| external| expr| ';'
 	}
 }
 
+//-----------------------------------
+//	Library Functions, that 
+//	can be used like extern
+//-----------------------------------
+
+
+extern "C"
+
+double putchard(double X) {
+	putchar((char)X);
+	return 0;
+}
+
+
 
 //---------------------------
 //	Main driver code
@@ -462,10 +549,17 @@ int main() {
 	fprintf(stderr, "ready> ");
 	getNextTok();
 
+	
+	TheModule = new Module("my cool jit", Context);
+
+	
 	MainLoop();						//цикл интерпретатора
 	
+	TheModule->dump();
+
 	return 0;
 }
+
 
 
 
