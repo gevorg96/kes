@@ -1,9 +1,9 @@
 
-#include "llvm/DerivedTypes.h"
-#include "llvm/LLVMContext.h"
-#include "llvm/Module.h"
+#include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/Module.h"
 #include "llvm/Analysis/Verifier.h"
-#include "llvm/Support/IRBuilder.h"
+#include "llvm/IR/IRBuilder.h"
 #include <cstdio>
 #include <cstdlib>
 #include <map>
@@ -11,6 +11,7 @@
 #include <vector>
 
 using namespace std;
+using namespace llvm;
 
 //--------------------
 //   	 Lexer
@@ -376,8 +377,8 @@ Value *VarExprAST::Codegen() {
 }
 
 Value *BinExprAST::Codegen() {
-	Value L* = LSH->Codegen();
-	Value R* = RSH->Codegen();
+	Value *L = LHS->Codegen();
+	Value *R = RHS->Codegen();
 	if (L == 0 || R==0) return 0;
 
 	switch(Op) {
@@ -402,7 +403,7 @@ Value *CallExprAST:: Codegen() {
 	  return ErrorV("Incorrect # arguments passed");
 
 	vector<Value*> ArgsV;
-	for (unsigned i = 0, e = Args.size; i != e; ++i) {
+	for (unsigned i = 0, e = Args.size(); i != e; ++i) {
 	  ArgsV.push_back(Args[i]->Codegen());
 	  if (ArgsV.back() == 0) return 0;
 	}
