@@ -1,18 +1,24 @@
-
+#include "llvm/ADT/APFloat.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/Function.h"
+#include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
-#include "llvm/Analysis/Verifier.h"
-#include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/Type.h"
+#include "llvm/IR/Verifier.h"
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
-using namespace std;
 using namespace llvm;
-
+using namespace std;
 //--------------------
 //   	 Lexer
 //--------------------
@@ -50,7 +56,7 @@ static int gettok()
 	}
 
 	if(isdigit(LastCh) || LastCh == '.'){		//число 0-9.
-		string NumStr;
+		std::string NumStr;
 	do{
 		NumStr += LastCh;
 		LastCh = getchar();
@@ -84,13 +90,14 @@ static int gettok()
 //	  AST
 //--------------------
 
+namespace {
 
 class ExprAST{									//базовый класс
 	public:
 	  virtual ~ExprAST(){}
 
 
-	virtual Value *Codegen() = 0;
+	  virtual Value *codegen() = 0;
 };
 
 
@@ -99,16 +106,16 @@ class NumExprAST : public ExprAST {			//узел выражения для чи�
 	public:
 	  NumExprAST (double val) : Val(val) {}
 
-	virtual Value *Codegen();
+	  Value *codegen() override;
 };
 
 
 class VarExprAST : public ExprAST {				//узел выражения для переменных
-	  string Name;
+	  std::string Name;
 	public:
-	  VarExprAST (const string &name) : Name(name) {}
+	  VarExprAST (const std::string &name) : Name(name) {}
 
-	virtual Value *Codegen();
+	  Value *codegen() override;
 };
 
 
@@ -119,30 +126,30 @@ class BinExprAST : public ExprAST{				//узел выражения для би�
 	  BinExprAST (char op, ExprAST *lhs, ExprAST *rhs)
 	  : Op(op), LHS(lhs), RHS(rhs) {}
 
-	virtual Value *Codegen();
+	Value *codegen() override;
 };
 
 
 class CallExprAST : public ExprAST{				//узел выражения для вызова функции
-	  string Callee;	
-	  vector<ExprAST*> Args;
+	  std::string Callee;	
+	  std::vector<ExprAST*> Args;
 	public:
-	  CallExprAST (const string &callee, vector<ExprAST*> &args)
+	  CallExprAST (const std::string &callee, std::vector<ExprAST*> &args)
 	  : Callee(callee), Args(args) {}
 
-	virtual Value *Codegen();
+	  Value *codegen() override;
 };
 
 
 
 class ProtoAST {							//прототип функции(хранит имя функции и имена арг.)
-	  string Name;
-	  vector<string> Args;
+	  std::string Name;
+	  std::vector<string> Args;
 	public:
-	  ProtoAST (const string &name, const vector<string> &args)
+	  ProtoAST (const std::string &name, const std::vector<std::string> &args)
 	  : Name(name), Args(args) {}
-
-	virtual Value *Codegen();
+	  Function *codegen();
+	  const std::string &getName() const {return Name;}
 };
 
 
@@ -153,9 +160,9 @@ class FuncAST {								//узел выражения определения фу
 	  FuncAST (ProtoAST *proto, ExprAST *body)
 	  : Proto(proto), Body(body) {}
 
-	virtual Value *Codegen();
+	  Function *codegen();
 };
-
+}
 
 //----------------------
 //	   Parser
@@ -167,7 +174,7 @@ static int getNextTok() {				//смотрим на 1 токен вперёд
 	return CurTok = gettok();
 }
 
-static map<char, int> BinopPrecedence;			//приоритеты бинарных операторов
+static std::map<char, int> BinopPrecedence;			//приоритеты бинарных операторов
 
 static int GetTokPrec() {				//возвращает приоритет текущего бинарного оператора
 	if (!isascii(CurTok))
@@ -199,14 +206,14 @@ static ExprAST *ParseExpr();
 
 
 static ExprAST *ParseIdExpr() {				//парсер идентефикаторов
-	string Idname = IdStr;
+	std::string Idname = IdStr;
 	
 	getNextTok();
 
 	if (CurTok != '(') return new VarExprAST(Idname);	//переменная
 
 	getNextTok();					//получаем "("
-	vector<ExprAST*> Args;
+	std::vector<ExprAST*> Args;
 	
 	if (CurTok != ')') {
 	  while(1) {
@@ -299,13 +306,13 @@ static ProtoAST *ParseProto() {					//парсер прототипов функ
 	if (CurTok != tok_identifier)
 	  return ErrorP ("Expected func name in prototype");
 
-	string FnName = IdStr;
+	std::string FnName = IdStr;
 	getNextTok();
 
 	if (CurTok != '(')
     	  return ErrorP("Expected '(' in prototype");
 
-	vector<string> ArgNames;					//считываем список аргументов
+	std::vector<string> ArgNames;					//считываем список аргументов
 
 	while (getNextTok() == tok_identifier)
 		ArgNames.push_back (IdStr);
@@ -356,7 +363,7 @@ static ProtoAST *ParseExtern() {
 
 static Module *TheModule;
 static IRBuilder<> Builder(getGlobalContext());
-static map<string, Value*> NamedValues;
+static std::map<std::string, Value*> NamedValues;
 
 
 Value *ErrorV (const char *Str) {
@@ -365,21 +372,21 @@ Value *ErrorV (const char *Str) {
 }
 
 
-Value *NumExprAST:: Codegen() {
+Value *NumExprAST:: codegen() {
 	return ConstantFP::get(getGlobalContext(), APFloat(Val));
 }
 
 
-Value *VarExprAST::Codegen() {
+Value *VarExprAST::codegen() {
 
 	Value *V = NamedValues[Name];
 	return V ? V : ErrorV("Unknown variable name.");
 }
 
-Value *BinExprAST::Codegen() {
-	Value *L = LHS->Codegen();
-	Value *R = RHS->Codegen();
-	if (L == 0 || R==0) return 0;
+Value *BinExprAST::codegen() {
+	Value *L = LHS->codegen();
+	Value *R = RHS->codegen();
+	if (!L || !R) return 0;
 
 	switch(Op) {
 	  case '+': return Builder.CreateFAdd(L, R, "addtmp");
@@ -393,7 +400,7 @@ Value *BinExprAST::Codegen() {
 	}
 }
 
-Value *CallExprAST:: Codegen() {
+Value *CallExprAST:: codegen() {
 
 	Function *CalleeF = TheModule->getFunction(Callee);
 	if (CalleeF == 0)
@@ -402,22 +409,22 @@ Value *CallExprAST:: Codegen() {
 	if (CalleeF->arg_size() != Args.size())
 	  return ErrorV("Incorrect # arguments passed");
 
-	vector<Value*> ArgsV;
+	std::vector<Value*> ArgsV;
 	for (unsigned i = 0, e = Args.size(); i != e; ++i) {
-	  ArgsV.push_back(Args[i]->Codegen());
+	  ArgsV.push_back(Args[i]->codegen());
 	  if (ArgsV.back() == 0) return 0;
 	}
 	
-	return Builder.CreateCall(CalleeF, ArgsV.begin(), ArgsV.end(), "calltmp");
+	  return Builder.CreateCall(CalleeF, ArgsV, "calltmp");
 }
 
 
-Function *ProtoAST:: Codegen() {
-	vector <const Type*> Doubles(Args.size(), Type:: getDoubleTy(getGlobalContext()));
+Function *ProtoAST:: codegen() {
+	std::vector <const Type*> Doubles(Args.size(), Type::getDoubleTy(getGlobalContext()));
 	
 	FunctionType *FT = FunctionType::get(Type::getDoubleTy(getGlobalContext()), Doubles, false);
 
-	Function *F = Function:: Create(FT, Function::ExternalLinkage, Name, TheModule);
+	Function *F = Function::Create(FT, Function::ExternalLinkage, Name, TheModule);
 
 	if (F->getName() != Name) {
 
@@ -439,25 +446,22 @@ Function *ProtoAST:: Codegen() {
 	unsigned Idx = 0;
 	for (Function::arg_iterator AI = F->arg_begin(); Idx != Args.size(); ++AI, ++Idx) {
 	  AI->setName(Args[Idx]);
-	  NamedValues[Args[Idx]);
-
-	  NamedValues[Args[Idx]] = AI;
 	}
 
 	return F;
 }
 
 
-Function *FuncAST:: Codegen() {
+Function *FuncAST:: codegen() {
 	NamedValues.clear();
 
-	Function *TheFunction = Proto->Codegen();
+	Function *TheFunction = Proto->codegen();
 	if (TheFunction == 0) return 0;
 
 	BasicBlock *BB = BasicBlock::Create(getGlobalContext(), "entry", TheFunction);
 	Builder.SetInsertPoint(BB);
 
-	if (Value *RetVAl = Body->Codegen()) {
+	if (Value *RetVal = Body->codegen()) {
 	  Builder.CreateRet(RetVal);
 	  verifyFunction(*TheFunction);
 	  return TheFunction;
@@ -476,7 +480,7 @@ Function *FuncAST:: Codegen() {
 
 static void HandleDef() {
 	if (FuncAST *F = ParseDef()) {
-	  if (Function *LF = F->Codegen()) {
+	  if (Function *LF = F->codegen()) {
 	    fprintf(stderr, "Parsed a function definition.\n");
 	    LF->dump();
 	  }
@@ -488,7 +492,7 @@ static void HandleDef() {
 
 static void HandleExtern() {
 	if (ProtoAST *P = ParseExtern()) {
-	  if(Function *F = P->Codegen()){
+	  if(Function *F = P->codegen()){
 	    fprintf(stderr, "Parsed an extern.\n"); 
 	    F->dump();
 	  }	
@@ -499,7 +503,7 @@ static void HandleExtern() {
 
 static void HandleTopLevelExpr() {
 	if (FuncAST *F = ParseTopLevelExpr()) {
-	  if(Function *LF = F->Codegen()) {
+	  if(Function *LF = F->codegen()) {
 	    fprintf(stderr, "Parsed a top-level expr.\n");
 	    LF->dump();
 	  }
@@ -521,19 +525,6 @@ static void MainLoop() {					//top = def| external| expr| ';'
 	}
 }
 
-//-----------------------------------
-//	Library Functions, that 
-//	can be used like extern
-//-----------------------------------
-
-
-extern "C"
-
-double putchard(double X) {
-	putchar((char)X);
-	return 0;
-}
-
 
 
 //---------------------------
@@ -541,6 +532,8 @@ double putchard(double X) {
 //---------------------------
 
 int main() {
+
+	LLVMContext &Context = getGlobalContext();
 								//задаём бинарные операторы
 	BinopPrecedence['<'] = 10;
 	BinopPrecedence['+'] = 20;
