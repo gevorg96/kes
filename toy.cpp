@@ -6,10 +6,18 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/Verifier.h"
+#include "llvm/Support/TargetSelect.h"
+#include "llvm/Target/TargetMachine.h"
+#include "llvm/Transforms/Scalar.h"
+#include "llvm/Transforms/Scalar/GVN.h"
+#include "../include/KaleidoscopeJIT.h"
+#include <cassert>
 #include <cctype>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <map>
@@ -363,9 +371,14 @@ static unique_ptr<PrototypeAST> ParseExtern() {
 //	Code Generation
 //--------------------------
 static LLVMContext TheContext;
-static unique_ptr<Module> TheModule;
 static IRBuilder<> Builder(TheContext);
+static unique_ptr<Module> TheModule;
 static map<string, Value*> NamedValues;
+static unique_ptr<legacy::FunctionPassManager> TheFPM;
+static unique_ptr<KaleidoscopeJIT> TheJIT;
+static map<string, unique_ptr<PrototypeAST>> FunctionProtos;
+
+
 
 
 Value *ErrorV (const char *Str) {
@@ -374,7 +387,18 @@ Value *ErrorV (const char *Str) {
 }
 
 
-Value *NumberExprAST:: codegen() {
+Function *getFunction(string Name){
+	if(auto *F = TheModule -> getFunction(Name))
+		return F;
+	
+	auto FI = FunctionProtos.find(Name);
+	if(FI != FunctionProtos.end())
+		return FI -> second -> codegen();
+	
+	return nullptr;
+}
+
+Value *NumberExprAST::codegen() {
 	return ConstantFP::get(TheContext, APFloat(Val));
 }
 
@@ -403,9 +427,9 @@ Value *BinaryExprAST::codegen() {
 	}
 }
 
-Value *CallExprAST:: codegen() {
+Value *CallExprAST::codegen() {
 
-	Function *CalleeF = TheModule->getFunction(Callee);
+	Function *CalleeF = getFunction(Callee);
 	if (!CalleeF)
 	  return ErrorV("Unknown function referenced");
 
@@ -423,7 +447,7 @@ Value *CallExprAST:: codegen() {
 }
 
 
-Function *PrototypeAST:: codegen() {
+Function *PrototypeAST::codegen() {
 	vector <Type*> Doubles (Args.size(), Type::getDoubleTy(TheContext));
 	
 	FunctionType *FT = FunctionType::get(Type::getDoubleTy(TheContext), Doubles, false);
@@ -438,10 +462,11 @@ Function *PrototypeAST:: codegen() {
 }
 
 
-Function *FunctionAST:: codegen() {
+Function *FunctionAST::codegen() {
 
-	Function *TheFunction = TheModule->getFunction(Proto->getName());
-	if (!TheFunction) TheFunction = Proto->codegen();
+	auto &P = *Proto;
+	FunctionProtos[Proto->getName()] = move(Proto);
+	Function *TheFunction = getFunction(P.getName());
 
 	if(!TheFunction) return nullptr;
 
@@ -456,6 +481,7 @@ Function *FunctionAST:: codegen() {
 	if(Value *RetVal = Body->codegen()){
 		Builder.CreateRet(RetVal);
 		verifyFunction(*TheFunction);
+		TheFPM -> run(*TheFunction);
 		return TheFunction;
 	}
 
@@ -470,11 +496,28 @@ Function *FunctionAST:: codegen() {
 //----------------------------
 
 
+static void InitializeModuleAndPassManager (){
+	TheModule = llvm::make_unique<Module>("\n------my cool jit------", TheContext);
+	TheModule->setDataLayout(TheJIT->getTargetMachine().createdataLayout());
+	
+	TheFPM = llvm::make_unique<legacy::FunctionPassManager>(TheModule.get());
+	TheFPM -> add(createInstructionCombiningPass());
+	TheFPM -> add(createReassociatePass());
+	TheFPM -> add(createGVNPass());
+	TheFPM -> add(createCFGSimplificationPass());
+	TheFPM -> doInitialization();
+}
+
+
+
+
 static void HandleDef() {
 	if (auto FnAST = ParseDefinition()) {
 	  if (auto *LF = FnAST->codegen()) {
 	    fprintf(stderr, "Parsed a function definition.\n");
 	    LF->dump();
+		TheJIT -> addModule(move(TheModule));
+		InitializeModuleAndPassManager();
 	  }
 	} else {
 	  getNextTok();						//пропуск токена для восстановления после ошибки
@@ -487,6 +530,7 @@ static void HandleExtern() {
 	  if(auto *F = ProtoAST->codegen()){
 	    fprintf(stderr, "Parsed an extern.\n"); 
 	    F->dump();
+		FunctionProtos[ProtoAST->getName()] = move(ProtoAST);
 	  }	
 	} else {
 	  getNextTok();						//..
@@ -496,8 +540,18 @@ static void HandleExtern() {
 static void HandleTopLevelExpr() {
 	if (auto FnAST = ParseTopLevelExpr()) {
 	  if(auto *LF = FnAST->codegen()) {
-	    fprintf(stderr, "Parsed a top-level expr.\n");
-	    LF->dump();
+		  
+		auto H = TheJIT->addModule(move(TheModule));
+		InitializeModuleAndPassManager(); 
+		  
+		auto ExprSymbol = TheJIT->findSymbol("___anon_expr");
+		assert(ExprSymbol && "Function not found");
+		  
+		double (*FP)() = (double(*)()) (intptr_t)ExprSymbol.getAddress();
+		  
+		  
+	    fprintf(stderr, "Evaluated to %f\n", FP());
+	    TheJIT -> removeModule(H);
 	  }
 	} else {
 	   getNextTok();					//..
@@ -509,7 +563,7 @@ static void MainLoop() {					//top = def| external| expr| ';'
 	  fprintf(stderr, "ready> ");
 	  switch (CurTok) {
 		case tok_eof:		return;
-		case ';': 		getNextTok(); break;	//игнорируем ';' верхнего уровня
+		case ';': 			getNextTok(); break;	//игнорируем ';' верхнего уровня
 		case tok_def:		HandleDef(); break;
 		case tok_extern:	HandleExtern(); break;
 		default:			HandleTopLevelExpr(); break;
@@ -517,6 +571,19 @@ static void MainLoop() {					//top = def| external| expr| ';'
 	}
 }
 
+//--------------------------------------
+// Library functions that can be extern
+//--------------------------------------
+
+extern "C" double putchard(double X) {
+	fputc((char)X, stderr);
+	return 0;
+}
+
+extern "C" double printd(double X){
+	fprintf(stderr, "%f\n", X);
+	return 0;
+}
 
 
 //---------------------------
@@ -524,6 +591,10 @@ static void MainLoop() {					//top = def| external| expr| ';'
 //---------------------------
 
 int main() {
+	
+	InitializeNativeTarget();
+	InitializeNativeTargetAsmPrinter();
+	InitializeNativeTargetAsmParser();
 
 								//задаём бинарные операторы
 	BinopPrecedence['<'] = 10;
@@ -535,7 +606,9 @@ int main() {
 	getNextTok();
 
 	
-	TheModule = llvm::make_unique<Module>("\n------my cool jit------", TheContext);
+	TheJIT =llvm::make_unique<KaleidoscopeJIT> ();
+	
+	InitializeModuleAndPassManager();
 
 	
 	MainLoop();						//цикл интерпретатора
