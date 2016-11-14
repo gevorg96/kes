@@ -1,0 +1,46 @@
+#!/bin/bash
+
+LLC=llc-3.4
+LINK=gcc
+COMPILER=./toycompiler
+STDLIB=toystd.o
+
+usage() {
+    echo "Usage: compile source target"
+    echo "  source: source file name (e.g. program.toy)"
+    echo "  target: executable file name (e.g. program)"
+}
+
+SOURCE=$1
+TARGET=$2
+
+if [ "x$SOURCE" = "x" -o "x$TARGET" = "x" ]; then
+    usage
+    exit 1
+fi
+
+if [ ! -f $SOURCE ]; then
+    echo "$SOURCE does not exist"
+    exit 1
+fi
+
+if [ -e $TARGET ]; then
+    echo "$TARGET already exists"
+    exit 1
+fi
+
+BCFILE=`mktemp /tmp/tmp.XXXXXXXXXX.bc`
+ASMFILE=`mktemp /tmp/tmp.XXXXXXXXXX.s`
+
+$COMPILER $SOURCE > $BCFILE
+if [ -f $BCFILE ]; then
+    $LLC $BCFILE -o $ASMFILE -O=3
+    
+    if [ -f $ASMFILE ]; then
+        $LINK -o $TARGET $ASMFILE $STDLIB
+        exit 0
+    fi
+fi
+
+exit 1
+

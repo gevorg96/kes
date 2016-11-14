@@ -1,0 +1,9 @@
+x = 54
+y = 45
+input z
+if x + y - z is zero
+  print x + y
+else
+  print z - x - y
+end
+

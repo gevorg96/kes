@@ -1,0 +1,10 @@
+x = 1
+if x is positive
+  input y
+  x = 1 - y
+  z = y + x
+else
+  input z
+end
+print z
+

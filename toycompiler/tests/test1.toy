@@ -1,0 +1,16 @@
+input x
+input y
+input z
+if x is zero
+  if y - z is positive
+    print y
+  else
+    print z
+  end
+else
+  min = y
+  if z - min is negative
+    min = z
+  end
+  print min
+end
